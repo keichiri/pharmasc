@@ -38,11 +38,11 @@ async function setup() {
   }
 }
 
-async function get_medicine(medicine_id) {
+async function get_medicine(medicineID) {
   let request = {
     chaincodeId: "pharmasc",
     fcn: "get_medicine",
-    args: [medicine_id]
+    args: [medicineID]
   };
 
   let response = await channel.queryByChaincode(request);
@@ -60,6 +60,7 @@ async function get_medicine(medicine_id) {
     return JSON.parse(responseJSON);
   }
 }
+
 async function get_medicines() {
   let request = {
     chaincodeId: "pharmasc",
@@ -134,6 +135,7 @@ async function add_medicine(name, timestamp, type, description) {
         clearTimeout(handle);
         let returnStatus = {event_status: code, txId: transactionIDString};
         if (code !== 'VALID') {
+          console.error("Transaction was invalid");
           resolve(returnStatus);
         } else {
           resolve(returnStatus);
@@ -158,9 +160,122 @@ async function add_medicine(name, timestamp, type, description) {
   }
 }
 
+async function add_batch(medicineID, count, manufacturer, timestamp) {
+  let txId = fabricClient.newTransactionID();
+  let transactionProposal = {
+    chaincodeId: "pharmasc",
+    fcn: "add_batch",
+    args: [medicineID, count, manufacturer, timestamp],
+    txId: txId,
+  };
+
+  console.log('Sending proposal to add batch');
+  let proposalResults = await channel.sendTransactionProposal(transactionProposal);
+  let proposalResponses = proposalResults[0];
+  let proposal = proposalResults[1];
+
+  if (!(proposalResponses && proposalResponses[0].response && proposalResponses[0].response.status === 200)) {
+    throw new Error("Transaction proposal not accepted");
+  }
+
+  console.log(`Successfully sent proposal and received proposal response. Status - ${proposalResponses[0].response.status}'
+              Message: ${proposalResponses[0].response.message}`);
+
+  let orderingRequest = {
+    proposalResponses: proposalResponses,
+    proposal: proposal
+  };
+
+  console.log('Sending endorsed proposal to orderer');
+  let transactionIDString = txId.getTransactionID();
+  let promises = [];
+
+  let sendPromise = channel.sendTransaction(orderingRequest);
+  promises.push(sendPromise);
+
+  let eventHub = channel.newChannelEventHub(peer);
+
+  let txPromise = new Promise((resolve, reject) => {
+    let handle = setTimeout(() => {
+      eventHub.unregisterTxEvent(transactionIDString);
+      eventHub.disconnect();
+      resolve({ event_status: 'TIMEOUT' })
+    }, 3000);
+    eventHub.registerTxEvent(transactionIDString, (tx, code) => {
+        clearTimeout(handle);
+        let returnStatus = {event_status: code, txId: transactionIDString};
+        if (code !== 'VALID') {
+          console.error("Transaction was invalid");
+          resolve(returnStatus);
+        } else {
+          resolve(returnStatus);
+        }
+      }, (err) => {
+        reject(new Error("There was a problem with the eventhub: " + err));
+      },
+      {disconnect: true}
+    );
+    eventHub.connect();
+  });
+
+  promises.push(txPromise);
+
+  let results = await Promise.all(promises);
+
+  console.log('Both promises terminated');
+
+  if (results && results[0] && results[0].status === "SUCCESS") {
+    console.log("Successfully sent transaction to the orderer");
+  } else {
+    throw new Error("Failed to order the transaction. Error code: " + results[0].status);
+  }
+}
+
+async function get_batches_for_medicine(medicineID) {
+  let request = {
+    chaincodeId: "pharmasc",
+    fcn: "get_batches_for_medicine",
+    args: [medicineID]
+  };
+
+  let response = await channel.queryByChaincode(request);
+
+  if (response && response.length === 1) {
+    if (response[0] instanceof Error) {
+      throw new Error(`Failed to get response. Error: ${response[0]}`);
+    }
+
+    let responseJSON = Buffer.from(response[0], "base64").toString();
+    return JSON.parse(responseJSON);
+  }
+}
+
+
+async function get_medicines_of_type(medicineType) {
+  let request = {
+    chaincodeId: "pharmasc",
+    fcn: "get_medicines_of_type",
+    args: [medicineType]
+  };
+
+  let response = channel.queryByChaincode(request);
+
+  if (response && response.length === 1) {
+    if (response[0] instanceof Error) {
+      throw new Error(`Failed to get response. Error: ${response[0]}`);
+    }
+
+    let responseJSON = Buffer.from(response[0], "base64").toString();
+    return JSON.parse(responseJSON);
+  }
+}
+
 module.exports = {
   setup,
   get_medicines,
   add_medicine,
   get_medicine,
+  add_batch,
+  get_batches_for_medicine,
+  get_medicines_of_type,
 };
