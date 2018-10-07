@@ -9,6 +9,9 @@ import FormControl from '@material-ui/core/FormControl';
 import Input from '@material-ui/core/Input';
 import InputLabel from '@material-ui/core/InputLabel';
 import NavBar from './NavBar';
+import axios from 'axios';
+import PropTypes from 'prop-types'
+import { Redirect } from 'react-router-dom';
 
 
 const style = {
@@ -19,17 +22,26 @@ const style = {
 }
 
 class AddMedicine extends Component {
+  static contextTypes = {
+    router: PropTypes.object
+  }
+  
   constructor(props) {
     super(props);
     this.state = {
-      creationDate: null  ,
+      creationDate: null,
       name: "",
+      type: '',
       description: ""
     }
   }
 
   handleNameChange = event => {
     this.setState({name: event.target.value});
+  }
+
+  handleTypeChange = event => {
+    this.setState({type: event.target.value});
   }
 
   handleCreationDateChange = event => {
@@ -40,15 +52,28 @@ class AddMedicine extends Component {
     this.setState({description: event.target.value});
   }
 
-  handleSubmit = event => {
+  handleSubmit = async event => {
     event.preventDefault();
-
+    let timestamp;
+    if (this.state.creationDate) {
+      timestamp = this.state.creationDate.getTime() / 1000;
+    } else {
+      timestamp = (new Date()).getTime() / 1000;
+    }
     let data = {
       name: this.state.name,
-      creationDate: this.state.creationDate.toString(),
+      timestamp: Math.round(timestamp),
+      type: this.state.type,
       description: this.state.description
     };
-    console.log(`Submitting data: ${JSON.stringify(data)}`);
+    console.log('calling!');
+    try {
+      await axios.post('http://localhost:9300/medicine', data);
+      this.context.router.history.push('/list_medicines');
+    } catch (error) {
+      console.log('Error while submitting data: ' + error);
+    }
+
   }
 
   render() {
@@ -63,6 +88,13 @@ class AddMedicine extends Component {
               <Input value={this.state.name}
                      id="name"
                      onChange={this.handleNameChange}
+                     autoFocus/>
+            </FormControl>
+            <FormControl margin="normal" required fullWidth>
+              <InputLabel>Type</InputLabel>
+              <Input value={this.state.type}
+                     id="type"
+                     onChange={this.handleTypeChange}
                      autoFocus/>
             </FormControl>
             <FormControl margin="normal" required fullWidth>
